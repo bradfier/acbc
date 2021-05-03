@@ -6,6 +6,9 @@ license = "AGPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/bradfier/acbc"
 homepage = "https://github.com/bradfier/acbc"
+description = """
+A protcol decoder crate for the ACC Broadcasting API by Kunos Simulazioni
+"""
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
