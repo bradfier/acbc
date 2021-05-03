@@ -10,3 +10,10 @@ edition = "2018"
 nom = "6"
 thiserror = "1"
 tinyvec = "1"
+
+[dev-dependencies]
+criterion = "0.3.4"
+
+[[bench]]
+name = "incoming_decoder"
+harness = false

@@ -1,7 +1,6 @@
 # ACBC
 
-ACBC is a parser and protocol implementation of the Kunos Simulazioni Broadcast API,
-currently integrated with Assetto Corsa Competizione.
+ACBC is a parser and protocol implementation of the Kunos Simulazioni Broadcast API available in Assetto Corsa Competizione.
 
 
 ## References

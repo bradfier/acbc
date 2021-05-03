@@ -1,16 +1,25 @@
 use nom::bytes::complete::{tag, take_while};
-use nom::combinator::{map, map_res};
-use nom::error::{context, VerboseError};
+use nom::combinator::{map, map_res, not};
+use nom::error::context;
 use nom::multi::{fold_many0, length_value};
 use nom::number::complete::{le_f32, le_i32, le_i8, le_u16, le_u32, le_u8};
 use nom::sequence::tuple;
-use nom::IResult;
 
-use crate::{Lap, RealtimeUpdate, RegistrationResult, SessionPhase, SessionType};
+use crate::{
+    CarLocation, IncomingMessage, Lap, RealtimeCarUpdate, RealtimeUpdate, RegistrationResult,
+    ReplayInfo, Res, SessionPhase, SessionType,
+};
+use nom::branch::alt;
 use std::convert::TryFrom;
 use tinyvec::ArrayVec;
 
-type Res<T, U> = IResult<T, U, VerboseError<T>>;
+pub(crate) fn parse(input: &[u8]) -> Res<&[u8], IncomingMessage> {
+    alt((
+        map(registration_result, IncomingMessage::RegistrationResult),
+        map(realtime_update, IncomingMessage::RealtimeUpdate),
+        map(realtime_car_update, IncomingMessage::RealtimeCarUpdate),
+    ))(input)
+}
 
 fn registration_result(input: &[u8]) -> Res<&[u8], RegistrationResult> {
     context(
@@ -45,11 +54,32 @@ fn boolean(input: &[u8]) -> Res<&[u8], bool> {
     context("boolean", map(le_u8, |i: u8| i != 0))(input)
 }
 
+// Replay info is not included in the datagram if it's not currently a replay context
+fn replay_info(input: &[u8]) -> Res<&[u8], Option<ReplayInfo>> {
+    context(
+        "replay_info",
+        alt((
+            map(tag(&[0x00]), |_| None),
+            map(
+                tuple((not(tag(&[0x00])), le_f32, le_f32, le_u32)),
+                |(_, session_time, remaining_time, focused_car_index)| {
+                    Some(ReplayInfo {
+                        session_time,
+                        remaining_time,
+                        focused_car_index,
+                    })
+                },
+            ),
+        )),
+    )(input)
+}
+
+// Split sector times are stored as <u8 number of sectors><i32 ms><i32 ms><i32 ms> etc
 fn splits(input: &[u8]) -> Res<&[u8], ArrayVec<[i32; 3]>> {
     context(
         "splits",
         length_value(
-            map(le_u8, |l: u8| l * 4),
+            map(le_u8, |l: u8| l * 4), // le_i32s are 4 bytes wide
             fold_many0(
                 le_i32,
                 ArrayVec::new(),
@@ -101,7 +131,7 @@ fn realtime_update(input: &[u8]) -> Res<&[u8], RealtimeUpdate> {
             kstring,
             kstring,
             kstring,
-            boolean,
+            replay_info,
             le_f32,
             le_i8,
             le_i8,
@@ -126,7 +156,7 @@ fn realtime_update(input: &[u8]) -> Res<&[u8], RealtimeUpdate> {
                 active_camera_set,
                 active_camera,
                 current_hud_page,
-                is_replay_playing,
+                replay_info,
                 time_of_day,
                 ambient_temp,
                 track_temp,
@@ -149,7 +179,7 @@ fn realtime_update(input: &[u8]) -> Res<&[u8], RealtimeUpdate> {
                     active_camera_set,
                     active_camera,
                     current_hud_page,
-                    is_replay_playing,
+                    replay_info,
                     time_of_day,
                     ambient_temp,
                     track_temp,
@@ -157,6 +187,83 @@ fn realtime_update(input: &[u8]) -> Res<&[u8], RealtimeUpdate> {
                     rain_level,
                     wetness,
                     best_session_lap,
+                },
+            )
+        },
+    )
+}
+
+fn realtime_car_update(input: &[u8]) -> Res<&[u8], RealtimeCarUpdate> {
+    context(
+        "realtime_car_update",
+        tuple((
+            tag(&[0x03]),
+            le_u16,
+            le_u16,
+            le_u8,
+            le_i8,
+            le_f32,
+            le_f32,
+            le_f32,
+            map_res(le_u8, CarLocation::try_from),
+            le_u16,
+            le_u16,
+            le_u16,
+            le_u16,
+            le_f32,
+            le_u16,
+            le_i32,
+            lap,
+            lap,
+            lap,
+        )),
+    )(input)
+    .map(
+        |(
+            next_input,
+            (
+                _,
+                id,
+                driver_id,
+                driver_count,
+                gear,
+                world_pos_x,
+                world_pos_y,
+                yaw,
+                car_location,
+                speed_kph,
+                position,
+                cup_position,
+                track_position,
+                spline_position,
+                laps,
+                delta,
+                best_session_lap,
+                last_lap,
+                current_lap,
+            ),
+        )| {
+            (
+                next_input,
+                RealtimeCarUpdate {
+                    id,
+                    driver_id,
+                    driver_count,
+                    gear,
+                    world_pos_x,
+                    world_pos_y,
+                    yaw,
+                    car_location,
+                    speed_kph,
+                    position,
+                    cup_position,
+                    track_position,
+                    spline_position,
+                    laps,
+                    delta,
+                    best_session_lap,
+                    last_lap,
+                    current_lap,
                 },
             )
         },
@@ -234,5 +341,14 @@ mod tests {
         assert_eq!(res.active_camera, "CameraPit3");
         assert_eq!(res.ambient_temp, 25);
         assert_eq!(res.session_type, SessionType::Qualifying);
+    }
+
+    #[test]
+    fn parse_realtime_car_update() {
+        let input = include_bytes!("../docs/pcap/realtime_car_update.bin");
+        let res = realtime_car_update(input).unwrap();
+
+        assert_eq!(res.0.len(), 0);
+        assert_eq!(res.1.current_lap.splits.len(), 0);
     }
 }
