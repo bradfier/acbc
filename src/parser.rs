@@ -7,17 +7,25 @@ use nom::sequence::tuple;
 
 use crate::{
     CarLocation, IncomingMessage, Lap, RealtimeCarUpdate, RealtimeUpdate, RegistrationResult,
-    ReplayInfo, Res, SessionPhase, SessionType,
+    ReplayInfo, SessionPhase, SessionType,
 };
 use nom::branch::alt;
+use nom::IResult;
+use nom_supreme::error::ErrorTree;
+use nom_supreme::final_parser::{final_parser, ByteOffset};
 use std::convert::TryFrom;
 use tinyvec::ArrayVec;
 
-pub(crate) fn parse(input: &[u8]) -> Res<&[u8], IncomingMessage> {
-    alt((
-        map(registration_result, IncomingMessage::RegistrationResult),
-        map(realtime_update, IncomingMessage::RealtimeUpdate),
-        map(realtime_car_update, IncomingMessage::RealtimeCarUpdate),
+type Res<T, U> = IResult<T, U, ErrorTree<T>>;
+
+pub(crate) fn parse(input: &[u8]) -> Result<IncomingMessage, ErrorTree<ByteOffset>> {
+    final_parser(context(
+        "incoming_message",
+        alt((
+            map(registration_result, IncomingMessage::RegistrationResult),
+            map(realtime_update, IncomingMessage::RealtimeUpdate),
+            map(realtime_car_update, IncomingMessage::RealtimeCarUpdate),
+        )),
     ))(input)
 }
 
@@ -277,23 +285,23 @@ mod tests {
     #[test]
     fn parse_kstring() {
         let input = b"\x03\x00abcefg";
-        assert_eq!(kstring(input), Ok((&b"efg"[..], "abc")));
+        assert_eq!(kstring(input).unwrap(), (&b"efg"[..], "abc"));
     }
 
     #[test]
     fn parse_empty_kstring() {
         let input = b"\x00\x00abc";
-        assert_eq!(kstring(input), Ok((&b"abc"[..], "")));
+        assert_eq!(kstring(input).unwrap(), (&b"abc"[..], ""));
     }
 
     #[test]
     fn parse_registration_result() {
         let input = b"\x01\x01\x00\x00\x00\x01\x01\x00\x00";
-        let res = registration_result(input);
+        let res = registration_result(input).unwrap();
 
         assert_eq!(
             res,
-            Ok((
+            (
                 &[][..],
                 RegistrationResult {
                     connection_id: 1,
@@ -301,18 +309,18 @@ mod tests {
                     read_only: true,
                     error_message: "",
                 }
-            ))
+            )
         );
     }
 
     #[test]
     fn parse_registration_fail() {
         let input = b"\x01\x01\x00\x00\x00\x00\x01\x10\x00Handshake failed";
-        let res = registration_result(input);
+        let res = registration_result(input).unwrap();
 
         assert_eq!(
             res,
-            Ok((
+            (
                 &[][..],
                 RegistrationResult {
                     connection_id: 1,
@@ -320,7 +328,7 @@ mod tests {
                     read_only: true,
                     error_message: "Handshake failed",
                 }
-            ))
+            )
         );
     }
 
@@ -350,5 +358,14 @@ mod tests {
 
         assert_eq!(res.0.len(), 0);
         assert_eq!(res.1.current_lap.splits.len(), 0);
+    }
+
+    #[test]
+    fn parse_bogus_data() {
+        // random64 starts with a 0x03 so it looks like a RealtimeCarUpdate and
+        // should proceed down that parse tree and unwind without a panic.
+        let input = include_bytes!("../docs/pcap/random64.bin");
+        let res = IncomingMessage::parse(input);
+        assert!(res.is_err());
     }
 }

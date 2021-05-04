@@ -1,13 +1,12 @@
-use nom::error::VerboseError;
-use nom::IResult;
+use nom_supreme::error::ErrorTree;
+use nom_supreme::final_parser::ByteOffset;
 use std::convert::TryFrom;
 use thiserror::Error;
 use tinyvec::ArrayVec;
 
 mod parser;
 
-pub type Res<T, U> = IResult<T, U, VerboseError<T>>;
-
+#[derive(Debug)]
 pub enum IncomingMessage<'a> {
     RegistrationResult(RegistrationResult<'a>),
     RealtimeUpdate(RealtimeUpdate<'a>),
@@ -15,7 +14,7 @@ pub enum IncomingMessage<'a> {
 }
 
 impl<'a> IncomingMessage<'a> {
-    pub fn parse(input: &'a [u8]) -> Res<&[u8], IncomingMessage> {
+    pub fn parse(input: &'a [u8]) -> Result<IncomingMessage, ErrorTree<ByteOffset>> {
         parser::parse(input)
     }
 }

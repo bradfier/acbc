@@ -17,6 +17,7 @@ edition = "2018"
 nom = "6"
 thiserror = "1"
 tinyvec = "1"
+nom-supreme = "0.4.2"
 
 [dev-dependencies]
 criterion = "0.3.4"
