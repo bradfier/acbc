@@ -4,13 +4,20 @@ use std::convert::TryFrom;
 use thiserror::Error;
 use tinyvec::ArrayVec;
 
+mod acc_enum;
 mod parser;
+
+pub use acc_enum::{CarModel, CupCategory, DriverCategory, Nationality};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub enum IncomingMessage<'a> {
     RegistrationResult(RegistrationResult<'a>),
     RealtimeUpdate(RealtimeUpdate<'a>),
     RealtimeCarUpdate(RealtimeCarUpdate),
+    EntrylistUpdate(EntrylistUpdate),
+    EntrylistCar(EntrylistCar<'a>),
+    TrackData(TrackData<'a>),
 }
 
 impl<'a> IncomingMessage<'a> {
@@ -36,6 +43,14 @@ pub enum DecodeError {
     UnknownSessionPhase(u8),
     #[error("Unrecognised car location `{0}`")]
     UnknownCarLocation(u8),
+    #[error("Unrecognised driver category `{0}`")]
+    UnknownDriverCategory(u8),
+    #[error("Unrecognised nationality `{0}`")]
+    UnknownNationality(u16),
+    #[error("Unrecognised car model `{0}`")]
+    UnknownCarModel(u8),
+    #[error("Unrecognised cup category `{0}`")]
+    UnknownCupCategory(u8),
 }
 
 #[derive(Debug, PartialEq)]
@@ -100,7 +115,7 @@ impl TryFrom<u8> for SessionPhase {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CarLocation {
     None,
     Track,
@@ -192,6 +207,44 @@ pub struct RealtimeCarUpdate {
     pub last_lap: Lap,
     /// Lap data for the current lap, note that sector times are not populated for this field.
     pub current_lap: Lap,
+}
+
+#[derive(Debug, Clone)]
+pub struct EntrylistUpdate {
+    pub car_ids: Vec<u16>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Driver<'a> {
+    pub first_name: &'a str,
+    pub last_name: &'a str,
+    pub short_name: &'a str,
+    pub category: DriverCategory,
+    pub nationality: Nationality,
+}
+
+#[derive(Debug, Clone)]
+pub struct EntrylistCar<'a> {
+    pub id: u16,
+    pub model: CarModel,
+    pub team_name: &'a str,
+    pub race_number: i32,
+    pub cup_category: CupCategory,
+    pub current_driver_index: u8,
+    pub nationality: Nationality,
+    pub drivers: Vec<Driver<'a>>,
+}
+
+pub type CameraSet<'a> = Vec<&'a str>;
+pub type HudPages<'a> = Vec<&'a str>;
+
+#[derive(Debug, Clone)]
+pub struct TrackData<'a> {
+    pub name: &'a str,
+    pub id: u32,
+    pub distance: u32,
+    pub camera_sets: HashMap<&'a str, CameraSet<'a>>,
+    pub hud_pages: HudPages<'a>,
 }
 
 #[cfg(test)]

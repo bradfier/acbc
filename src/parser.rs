@@ -1,13 +1,14 @@
 use nom::bytes::complete::{tag, take_while};
 use nom::combinator::{map, map_res, not};
 use nom::error::context;
-use nom::multi::{fold_many0, length_value};
+use nom::multi::{fold_many0, length_count, length_value};
 use nom::number::complete::{le_f32, le_i32, le_i8, le_u16, le_u32, le_u8};
 use nom::sequence::tuple;
 
 use crate::{
-    CarLocation, IncomingMessage, Lap, RealtimeCarUpdate, RealtimeUpdate, RegistrationResult,
-    ReplayInfo, SessionPhase, SessionType,
+    CameraSet, CarLocation, CarModel, CupCategory, Driver, DriverCategory, EntrylistCar,
+    EntrylistUpdate, HudPages, IncomingMessage, Lap, Nationality, RealtimeCarUpdate,
+    RealtimeUpdate, RegistrationResult, ReplayInfo, SessionPhase, SessionType, TrackData,
 };
 use nom::branch::alt;
 use nom::IResult;
@@ -25,6 +26,9 @@ pub(crate) fn parse(input: &[u8]) -> Result<IncomingMessage, ErrorTree<ByteOffse
             map(registration_result, IncomingMessage::RegistrationResult),
             map(realtime_update, IncomingMessage::RealtimeUpdate),
             map(realtime_car_update, IncomingMessage::RealtimeCarUpdate),
+            map(entrylist_update, IncomingMessage::EntrylistUpdate),
+            map(entrylist_car, IncomingMessage::EntrylistCar),
+            map(track_data, IncomingMessage::TrackData),
         )),
     ))(input)
 }
@@ -62,6 +66,20 @@ fn boolean(input: &[u8]) -> Res<&[u8], bool> {
     context("boolean", map(le_u8, |i: u8| i != 0))(input)
 }
 
+// This parses just the 'header' which providers the list of existing Car IDs, the entry
+// list information is contained in EntrylistCar packets.
+fn entrylist_update(input: &[u8]) -> Res<&[u8], EntrylistUpdate> {
+    context(
+        "entrylist_update",
+        tuple((
+            tag(&[0x04]),                 // Packet type
+            le_u32,                       // Connection ID
+            length_count(le_u16, le_u16), // List of car IDs
+        )),
+    )(input)
+    .map(|(next_input, res)| (next_input, EntrylistUpdate { car_ids: res.2 }))
+}
+
 // Replay info is not included in the datagram if it's not currently a replay context
 fn replay_info(input: &[u8]) -> Res<&[u8], Option<ReplayInfo>> {
     context(
@@ -80,6 +98,81 @@ fn replay_info(input: &[u8]) -> Res<&[u8], Option<ReplayInfo>> {
             ),
         )),
     )(input)
+}
+
+// Parse the driver information supplied in the middle of EntrylistCar packets
+fn driver(input: &[u8]) -> Res<&[u8], Driver> {
+    context(
+        "driver",
+        tuple((
+            kstring,
+            kstring,
+            kstring,
+            map_res(le_u8, DriverCategory::try_from),
+            map_res(le_u16, Nationality::try_from),
+        )),
+    )(input)
+    .map(
+        |(next_input, (first_name, last_name, short_name, category, nationality))| {
+            (
+                next_input,
+                Driver {
+                    first_name,
+                    last_name,
+                    short_name,
+                    category,
+                    nationality,
+                },
+            )
+        },
+    )
+}
+
+fn entrylist_car(input: &[u8]) -> Res<&[u8], EntrylistCar> {
+    context(
+        "entrylist_car",
+        tuple((
+            tag(&[0x06]),
+            le_u16,
+            map_res(le_u8, CarModel::try_from),
+            kstring,
+            le_i32,
+            map_res(le_u8, CupCategory::try_from),
+            le_u8,
+            map_res(le_u16, Nationality::try_from),
+            length_count(le_u8, driver),
+        )),
+    )(input)
+    .map(
+        |(
+            next_input,
+            (
+                _,
+                id,
+                model,
+                team_name,
+                race_number,
+                cup_category,
+                current_driver_index,
+                nationality,
+                drivers,
+            ),
+        )| {
+            (
+                next_input,
+                EntrylistCar {
+                    id,
+                    model,
+                    team_name,
+                    race_number,
+                    cup_category,
+                    current_driver_index,
+                    nationality,
+                    drivers,
+                },
+            )
+        },
+    )
 }
 
 // Split sector times are stored as <u8 number of sectors><i32 ms><i32 ms><i32 ms> etc
@@ -278,6 +371,40 @@ fn realtime_car_update(input: &[u8]) -> Res<&[u8], RealtimeCarUpdate> {
     )
 }
 
+fn camera_set(input: &[u8]) -> Res<&[u8], (&str, CameraSet)> {
+    context("camera_set", tuple((kstring, length_count(le_u8, kstring))))(input)
+        .map(|(next_input, (set_name, cameras))| (next_input, (set_name, cameras as CameraSet)))
+}
+
+fn track_data(input: &[u8]) -> Res<&[u8], TrackData> {
+    context(
+        "track_data",
+        tuple((
+            tag([0x05]),
+            le_i32,
+            kstring,
+            le_u32,
+            le_u32,
+            length_count(le_u8, camera_set),
+            map(length_count(le_u8, kstring), |h| h as HudPages),
+        )),
+    )(input)
+    .map(
+        |(next_input, (_, _, name, id, distance, camera_sets, hud_pages))| {
+            (
+                next_input,
+                TrackData {
+                    name,
+                    id,
+                    distance,
+                    camera_sets: camera_sets.into_iter().collect(),
+                    hud_pages,
+                },
+            )
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,6 +485,45 @@ mod tests {
 
         assert_eq!(res.0.len(), 0);
         assert_eq!(res.1.current_lap.splits.len(), 0);
+    }
+
+    #[test]
+    fn parse_entrylist_update() {
+        let input = &[0x04, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0xe9, 0x03];
+        let res = entrylist_update(input).unwrap().1;
+
+        assert_eq!(res.car_ids.len(), 1);
+    }
+
+    #[test]
+    fn parse_entrylist_car() {
+        let input: &[u8] = &[
+            0x06, 0xe9, 0x03, 0x18, 0x00, 0x00, 0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x01, 0x06, 0x00, 0x4d, 0x61, 0x72, 0x74, 0x69, 0x6e, 0x08, 0x00, 0x52, 0x6f, 0x77,
+            0x6e, 0x74, 0x72, 0x65, 0x65, 0x03, 0x00, 0x52, 0x4f, 0x57, 0x03, 0x05, 0x00,
+        ];
+        let res = entrylist_car(input).unwrap().1;
+
+        assert_eq!(res.id, 1001);
+        assert_eq!(res.race_number, 75);
+        assert_eq!(res.drivers.len(), 1);
+        assert_eq!(res.drivers[0].first_name, "Martin");
+        assert_eq!(res.drivers[0].last_name, "Rowntree");
+        assert_eq!(res.drivers[0].short_name, "ROW");
+        assert_eq!(res.drivers[0].nationality, Nationality::GreatBritain);
+        assert_eq!(res.model, CarModel::Ferrari488Evo);
+    }
+
+    #[test]
+    fn parse_track_data() {
+        let input = include_bytes!("../docs/pcap/track_data.bin");
+        let res = track_data(input).unwrap().1;
+
+        assert_eq!(res.distance, 4011);
+        assert_eq!(res.name, "Circuit Zolder");
+        assert_eq!(res.id, 10);
+        assert_eq!(res.camera_sets.len(), 7);
+        assert_eq!(res.hud_pages.len(), 7);
     }
 
     #[test]
