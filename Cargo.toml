@@ -18,6 +18,8 @@ nom = "6"
 thiserror = "1"
 tinyvec = "1"
 nom-supreme = "0.4.2"
+byteorder = "1.4.3"
+log = "0.4.14"
 
 [dev-dependencies]
 criterion = "0.3.4"

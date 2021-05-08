@@ -1,4 +1,4 @@
-use crate::DecodeError;
+use crate::protocol::DecodeError;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 

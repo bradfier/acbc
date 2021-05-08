@@ -5,11 +5,13 @@ use nom::multi::{fold_many0, length_count, length_value};
 use nom::number::complete::{le_f32, le_i32, le_i8, le_u16, le_u32, le_u8};
 use nom::sequence::tuple;
 
-use crate::{
-    BroadcastingEvent, BroadcastingEventType, CameraSet, CarLocation, CarModel, CupCategory,
-    Driver, DriverCategory, EntrylistCar, EntrylistUpdate, HudPages, InboundMessage, Lap,
-    Nationality, RealtimeCarUpdate, RealtimeUpdate, RegistrationResult, ReplayInfo, SessionPhase,
-    SessionType, TrackData,
+use crate::protocol::acc_enum::{
+    BroadcastingEventType, CarLocation, CarModel, CupCategory, DriverCategory, Nationality,
+    SessionPhase, SessionType,
+};
+use crate::protocol::inbound::{
+    BroadcastingEvent, CameraSet, Driver, EntrylistCar, EntrylistUpdate, HudPages, InboundMessage,
+    Lap, RealtimeCarUpdate, RealtimeUpdate, RegistrationResult, ReplayInfo, TrackData,
 };
 use nom::branch::alt;
 use nom::IResult;
@@ -20,7 +22,7 @@ use tinyvec::ArrayVec;
 
 type Res<T, U> = IResult<T, U, ErrorTree<T>>;
 
-pub(crate) fn parse(input: &[u8]) -> Result<InboundMessage, ErrorTree<ByteOffset>> {
+pub(crate) fn parse<'a>(input: &'a [u8]) -> Result<InboundMessage<'a>, ErrorTree<ByteOffset>> {
     final_parser(context(
         "incoming_message",
         alt((
@@ -500,7 +502,7 @@ mod tests {
 
     #[test]
     fn parse_realtime_update() {
-        let input = include_bytes!("../docs/pcap/realtime_update.bin");
+        let input = include_bytes!("../../docs/pcap/realtime_update.bin");
         let res = realtime_update(input).unwrap().1;
 
         assert_eq!(res.active_camera, "CameraPit3");
@@ -510,7 +512,7 @@ mod tests {
 
     #[test]
     fn parse_realtime_car_update() {
-        let input = include_bytes!("../docs/pcap/realtime_car_update.bin");
+        let input = include_bytes!("../../docs/pcap/realtime_car_update.bin");
         let res = realtime_car_update(input).unwrap();
 
         assert_eq!(res.0.len(), 0);
@@ -546,7 +548,7 @@ mod tests {
 
     #[test]
     fn parse_track_data() {
-        let input = include_bytes!("../docs/pcap/track_data.bin");
+        let input = include_bytes!("../../docs/pcap/track_data.bin");
         let res = track_data(input).unwrap().1;
 
         assert_eq!(res.distance, 4011);
@@ -571,8 +573,8 @@ mod tests {
     fn parse_bogus_data() {
         // random64 starts with a 0x03 so it looks like a RealtimeCarUpdate and
         // should proceed down that parse tree and unwind without a panic.
-        let input = include_bytes!("../docs/pcap/random64.bin");
-        let res = InboundMessage::parse(input);
+        let input = include_bytes!("../../docs/pcap/random64.bin");
+        let res = InboundMessage::decode(input);
         assert!(res.is_err());
     }
 }
