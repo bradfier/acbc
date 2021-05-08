@@ -1,27 +1,27 @@
 use nom_supreme::error::ErrorTree;
 use nom_supreme::final_parser::ByteOffset;
-use std::convert::TryFrom;
+use std::collections::HashMap;
 use thiserror::Error;
 use tinyvec::ArrayVec;
 
 mod acc_enum;
 mod parser;
 
-pub use acc_enum::{CarModel, CupCategory, DriverCategory, Nationality};
-use std::collections::HashMap;
+pub use acc_enum::*;
 
 #[derive(Debug)]
-pub enum IncomingMessage<'a> {
+pub enum InboundMessage<'a> {
     RegistrationResult(RegistrationResult<'a>),
     RealtimeUpdate(RealtimeUpdate<'a>),
     RealtimeCarUpdate(RealtimeCarUpdate),
     EntrylistUpdate(EntrylistUpdate),
     EntrylistCar(EntrylistCar<'a>),
     TrackData(TrackData<'a>),
+    BroadcastingEvent(BroadcastingEvent<'a>),
 }
 
-impl<'a> IncomingMessage<'a> {
-    pub fn parse(input: &'a [u8]) -> Result<IncomingMessage, ErrorTree<ByteOffset>> {
+impl<'a> InboundMessage<'a> {
+    pub fn parse(input: &'a [u8]) -> Result<InboundMessage, ErrorTree<ByteOffset>> {
         parser::parse(input)
     }
 }
@@ -51,92 +51,8 @@ pub enum DecodeError {
     UnknownCarModel(u8),
     #[error("Unrecognised cup category `{0}`")]
     UnknownCupCategory(u8),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum SessionType {
-    Practice,
-    Qualifying,
-    Superpole,
-    Race,
-    Hotlap,
-    Hotstint,
-    HotlapSuperpole,
-    Replay,
-}
-
-impl TryFrom<u8> for SessionType {
-    type Error = DecodeError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(SessionType::Practice),
-            4 => Ok(SessionType::Qualifying),
-            9 => Ok(SessionType::Superpole),
-            10 => Ok(SessionType::Race),
-            11 => Ok(SessionType::Hotlap),
-            12 => Ok(SessionType::Hotstint),
-            13 => Ok(SessionType::HotlapSuperpole),
-            14 => Ok(SessionType::Replay),
-            x => Err(DecodeError::UnknownSessionType(x)),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum SessionPhase {
-    None,
-    Starting,
-    PreFormation,
-    FormationLap,
-    PreSession,
-    Session,
-    SessionOver,
-    PostSession,
-    ResultUi,
-}
-
-impl TryFrom<u8> for SessionPhase {
-    type Error = DecodeError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(SessionPhase::None),
-            1 => Ok(SessionPhase::Starting),
-            2 => Ok(SessionPhase::PreFormation),
-            3 => Ok(SessionPhase::FormationLap),
-            4 => Ok(SessionPhase::PreSession),
-            5 => Ok(SessionPhase::Session),
-            6 => Ok(SessionPhase::SessionOver),
-            7 => Ok(SessionPhase::PostSession),
-            8 => Ok(SessionPhase::ResultUi),
-            x => Err(DecodeError::UnknownSessionPhase(x)),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum CarLocation {
-    None,
-    Track,
-    Pitlane,
-    PitEntry,
-    PitExit,
-}
-
-impl TryFrom<u8> for CarLocation {
-    type Error = DecodeError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(CarLocation::None),
-            1 => Ok(CarLocation::Track),
-            2 => Ok(CarLocation::Pitlane),
-            3 => Ok(CarLocation::PitEntry),
-            4 => Ok(CarLocation::PitExit),
-            x => Err(DecodeError::UnknownCarLocation(x)),
-        }
-    }
+    #[error("Unrecognised broadcasting event type `{0}`")]
+    UnknownBroadcastingEvent(u8),
 }
 
 #[derive(Debug)]
@@ -245,6 +161,14 @@ pub struct TrackData<'a> {
     pub distance: u32,
     pub camera_sets: HashMap<&'a str, CameraSet<'a>>,
     pub hud_pages: HudPages<'a>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BroadcastingEvent<'a> {
+    pub event_type: BroadcastingEventType,
+    pub message: &'a str,
+    pub time_ms: i32,
+    pub car_id: u16,
 }
 
 #[cfg(test)]

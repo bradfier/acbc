@@ -1,5 +1,92 @@
+use crate::DecodeError;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
+
+#[derive(Debug, PartialEq)]
+pub enum SessionType {
+    Practice,
+    Qualifying,
+    Superpole,
+    Race,
+    Hotlap,
+    Hotstint,
+    HotlapSuperpole,
+    Replay,
+}
+
+impl TryFrom<u8> for SessionType {
+    type Error = DecodeError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(SessionType::Practice),
+            4 => Ok(SessionType::Qualifying),
+            9 => Ok(SessionType::Superpole),
+            10 => Ok(SessionType::Race),
+            11 => Ok(SessionType::Hotlap),
+            12 => Ok(SessionType::Hotstint),
+            13 => Ok(SessionType::HotlapSuperpole),
+            14 => Ok(SessionType::Replay),
+            x => Err(DecodeError::UnknownSessionType(x)),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SessionPhase {
+    None,
+    Starting,
+    PreFormation,
+    FormationLap,
+    PreSession,
+    Session,
+    SessionOver,
+    PostSession,
+    ResultUi,
+}
+
+impl TryFrom<u8> for SessionPhase {
+    type Error = DecodeError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(SessionPhase::None),
+            1 => Ok(SessionPhase::Starting),
+            2 => Ok(SessionPhase::PreFormation),
+            3 => Ok(SessionPhase::FormationLap),
+            4 => Ok(SessionPhase::PreSession),
+            5 => Ok(SessionPhase::Session),
+            6 => Ok(SessionPhase::SessionOver),
+            7 => Ok(SessionPhase::PostSession),
+            8 => Ok(SessionPhase::ResultUi),
+            x => Err(DecodeError::UnknownSessionPhase(x)),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum CarLocation {
+    None,
+    Track,
+    Pitlane,
+    PitEntry,
+    PitExit,
+}
+
+impl TryFrom<u8> for CarLocation {
+    type Error = DecodeError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(CarLocation::None),
+            1 => Ok(CarLocation::Track),
+            2 => Ok(CarLocation::Pitlane),
+            3 => Ok(CarLocation::PitEntry),
+            4 => Ok(CarLocation::PitExit),
+            x => Err(DecodeError::UnknownCarLocation(x)),
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Nationality {
@@ -84,7 +171,7 @@ pub enum Nationality {
 }
 
 impl TryFrom<u16> for Nationality {
-    type Error = crate::DecodeError;
+    type Error = DecodeError;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
@@ -166,7 +253,7 @@ impl TryFrom<u16> for Nationality {
             75 => Ok(Nationality::Ukraine),
             76 => Ok(Nationality::Venezuela),
             77 => Ok(Nationality::Wales),
-            x => Err(crate::DecodeError::UnknownNationality(x)),
+            x => Err(DecodeError::UnknownNationality(x)),
         }
     }
 }
@@ -215,7 +302,7 @@ pub enum CarModel {
 }
 
 impl TryFrom<u8> for CarModel {
-    type Error = crate::DecodeError;
+    type Error = DecodeError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -257,7 +344,7 @@ impl TryFrom<u8> for CarModel {
             59 => Ok(CarModel::McLaren570SGT4),
             60 => Ok(CarModel::MercedesAMGGT4),
             61 => Ok(CarModel::Porsche718GT4),
-            x => Err(crate::DecodeError::UnknownCarModel(x)),
+            x => Err(DecodeError::UnknownCarModel(x)),
         }
     }
 }
@@ -317,7 +404,7 @@ pub enum DriverCategory {
 }
 
 impl TryFrom<u8> for DriverCategory {
-    type Error = crate::DecodeError;
+    type Error = DecodeError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -325,7 +412,7 @@ impl TryFrom<u8> for DriverCategory {
             2 => Ok(Self::Gold),
             1 => Ok(Self::Silver),
             0 => Ok(Self::Bronze),
-            x => Err(crate::DecodeError::UnknownDriverCategory(x)),
+            x => Err(DecodeError::UnknownDriverCategory(x)),
         }
     }
 }
@@ -340,7 +427,7 @@ pub enum CupCategory {
 }
 
 impl TryFrom<u8> for CupCategory {
-    type Error = crate::DecodeError;
+    type Error = DecodeError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -349,7 +436,37 @@ impl TryFrom<u8> for CupCategory {
             2 => Ok(Self::Am),
             3 => Ok(Self::Silver),
             4 => Ok(Self::National),
-            x => Err(crate::DecodeError::UnknownCupCategory(x)),
+            x => Err(DecodeError::UnknownCupCategory(x)),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BroadcastingEventType {
+    None,
+    GreenFlag,
+    SessionOver,
+    PenaltyMessage,
+    Accident,
+    LapCompleted,
+    BestSessionLap,
+    BestPersonalLap,
+}
+
+impl TryFrom<u8> for BroadcastingEventType {
+    type Error = DecodeError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::None),
+            1 => Ok(Self::GreenFlag),
+            2 => Ok(Self::SessionOver),
+            3 => Ok(Self::PenaltyMessage),
+            4 => Ok(Self::Accident),
+            5 => Ok(Self::LapCompleted),
+            6 => Ok(Self::BestSessionLap),
+            7 => Ok(Self::BestPersonalLap),
+            x => Err(DecodeError::UnknownBroadcastingEvent(x)),
         }
     }
 }

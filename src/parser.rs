@@ -6,9 +6,10 @@ use nom::number::complete::{le_f32, le_i32, le_i8, le_u16, le_u32, le_u8};
 use nom::sequence::tuple;
 
 use crate::{
-    CameraSet, CarLocation, CarModel, CupCategory, Driver, DriverCategory, EntrylistCar,
-    EntrylistUpdate, HudPages, IncomingMessage, Lap, Nationality, RealtimeCarUpdate,
-    RealtimeUpdate, RegistrationResult, ReplayInfo, SessionPhase, SessionType, TrackData,
+    BroadcastingEvent, BroadcastingEventType, CameraSet, CarLocation, CarModel, CupCategory,
+    Driver, DriverCategory, EntrylistCar, EntrylistUpdate, HudPages, InboundMessage, Lap,
+    Nationality, RealtimeCarUpdate, RealtimeUpdate, RegistrationResult, ReplayInfo, SessionPhase,
+    SessionType, TrackData,
 };
 use nom::branch::alt;
 use nom::IResult;
@@ -19,16 +20,17 @@ use tinyvec::ArrayVec;
 
 type Res<T, U> = IResult<T, U, ErrorTree<T>>;
 
-pub(crate) fn parse(input: &[u8]) -> Result<IncomingMessage, ErrorTree<ByteOffset>> {
+pub(crate) fn parse(input: &[u8]) -> Result<InboundMessage, ErrorTree<ByteOffset>> {
     final_parser(context(
         "incoming_message",
         alt((
-            map(registration_result, IncomingMessage::RegistrationResult),
-            map(realtime_update, IncomingMessage::RealtimeUpdate),
-            map(realtime_car_update, IncomingMessage::RealtimeCarUpdate),
-            map(entrylist_update, IncomingMessage::EntrylistUpdate),
-            map(entrylist_car, IncomingMessage::EntrylistCar),
-            map(track_data, IncomingMessage::TrackData),
+            map(registration_result, InboundMessage::RegistrationResult),
+            map(realtime_update, InboundMessage::RealtimeUpdate),
+            map(realtime_car_update, InboundMessage::RealtimeCarUpdate),
+            map(entrylist_update, InboundMessage::EntrylistUpdate),
+            map(entrylist_car, InboundMessage::EntrylistCar),
+            map(track_data, InboundMessage::TrackData),
+            map(broadcasting_event, InboundMessage::BroadcastingEvent),
         )),
     ))(input)
 }
@@ -405,6 +407,34 @@ fn track_data(input: &[u8]) -> Res<&[u8], TrackData> {
     )
 }
 
+fn broadcasting_event(input: &[u8]) -> Res<&[u8], BroadcastingEvent> {
+    context(
+        "broadcasting_event",
+        tuple((
+            tag([0x07]),
+            map_res(le_u8, BroadcastingEventType::try_from),
+            kstring,
+            le_i32,
+            map(le_u32, |i| {
+                // For some reason, the car ID which is u16 everywhere else, is sent in this packet type
+                // as a 4-byte wide integer. Here we just drop the 2 most significant bytes
+                i as u16
+            }),
+        )),
+    )(input)
+    .map(|(next_input, (_, event_type, message, time_ms, car_id))| {
+        (
+            next_input,
+            BroadcastingEvent {
+                event_type,
+                message,
+                time_ms,
+                car_id,
+            },
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,11 +557,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_broadcasting_event() {
+        // Handwritten as we don't yet have a pcap of a Broadcast Event
+        let input = b"\x07\x05\x0d\x00Lap completed\x2c\x4a\x00\x00\xe9\x03\x00\x00";
+        let res = broadcasting_event(input).unwrap().1;
+
+        assert_eq!(res.car_id, 1001);
+        assert_eq!(res.message, "Lap completed");
+        assert_eq!(res.event_type, BroadcastingEventType::LapCompleted);
+    }
+
+    #[test]
     fn parse_bogus_data() {
         // random64 starts with a 0x03 so it looks like a RealtimeCarUpdate and
         // should proceed down that parse tree and unwind without a panic.
         let input = include_bytes!("../docs/pcap/random64.bin");
-        let res = IncomingMessage::parse(input);
+        let res = InboundMessage::parse(input);
         assert!(res.is_err());
     }
 }
