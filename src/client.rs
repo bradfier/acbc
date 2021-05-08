@@ -73,10 +73,12 @@ where
 
         // Set a 5s timeout and wait for the registration reply to come back, if we get something else, panic for now
         socket.set_read_timeout(Some(Duration::from_secs(5)))?;
-        let mut incoming = vec![];
-        socket.recv(&mut incoming)?;
+        let mut incoming = [0u8; 65535];
+        let size = socket.recv(&mut incoming)?;
 
-        let connection_id: u32 = match InboundMessage::decode(&incoming) {
+        let packet = &incoming[..size];
+
+        let connection_id: u32 = match InboundMessage::decode(&packet) {
             Ok(InboundMessage::RegistrationResult(res)) => {
                 if res.connection_success {
                     info!("Successfully registered with ACC Server");
@@ -115,9 +117,9 @@ where
     }
 
     pub fn poll(&self) -> Result<(), ClientError> {
-        let mut buffer = vec![];
-        self.listening_socket.recv(&mut buffer)?;
-        let decoded = InboundMessage::decode(&buffer).map_err(ClientError::MessageDecodeError)?;
+        let mut buffer = [0u8; 65535];
+        let size = self.listening_socket.recv(&mut buffer)?;
+        let decoded = InboundMessage::decode(&buffer[..size]).map_err(ClientError::MessageDecodeError)?;
 
         match decoded {
             InboundMessage::RealtimeUpdate(rt) => self.handler.realtime_update(&rt),
