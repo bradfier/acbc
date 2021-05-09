@@ -1,15 +1,23 @@
-use crate::protocol::inbound::{InboundMessage, RealtimeUpdate, RealtimeCarUpdate, EntrylistUpdate, EntrylistCar, TrackData, BroadcastingEvent};
+use crate::protocol::inbound::{
+    BroadcastingEvent, EntrylistCar, EntrylistUpdate, InboundMessage, RealtimeCarUpdate,
+    RealtimeUpdate, TrackData,
+};
 use crate::protocol::outbound::{OutboundMessage, RegistrationRequest, UnregisterRequest};
-use log::{info, trace, debug, warn};
+use log::{debug, info, trace};
 use nom_supreme::error::ErrorTree;
-use nom_supreme::final_parser::{ByteOffset, Location};
-use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
+use nom_supreme::final_parser::ByteOffset;
+use std::net::{ToSocketAddrs, UdpSocket};
 use std::time::Duration;
 use thiserror::Error;
 
+const UDP_MAX: usize = 65535;
+
 pub trait MessageHandler {
     fn realtime_update(&self, update: &RealtimeUpdate) {
-        trace!("Received realtime update packet for time {}", update.session_time);
+        trace!(
+            "Received realtime update packet for time {}",
+            update.session_time
+        );
     }
 
     fn realtime_car_update(&self, update: &RealtimeCarUpdate) {
@@ -17,7 +25,10 @@ pub trait MessageHandler {
     }
 
     fn entrylist_update(&self, update: &EntrylistUpdate) {
-        debug!("Received entry list update with {} cars", update.car_ids.len());
+        debug!(
+            "Received entry list update with {} cars",
+            update.car_ids.len()
+        );
     }
 
     fn entrylist_car(&self, car: &EntrylistCar) {
@@ -31,13 +42,11 @@ pub trait MessageHandler {
     fn broadcasting_event(&self, event: &BroadcastingEvent) {
         debug!("Received broadcasting event {:?}", event.event_type);
     }
-
 }
 
 pub struct BroadcastingClient<H: MessageHandler> {
     connection_id: u32,
-    remote_addr: SocketAddr,
-    listening_socket: UdpSocket,
+    socket: UdpSocket,
     handler: H,
 }
 
@@ -55,25 +64,24 @@ impl<H> BroadcastingClient<H>
 where
     H: MessageHandler,
 {
-    pub fn connect<A: ToSocketAddrs>(
+    pub fn connect<A: ToSocketAddrs, B: ToSocketAddrs>(
         listen: A,
-        remote: A,
+        remote: B,
         handler: H,
         req: RegistrationRequest,
     ) -> Result<Self, ClientError> {
         // Bind the listening socket first
         let socket = UdpSocket::bind(listen)?;
-        let remote_addr = remote.to_socket_addrs()?.next().unwrap();
-        socket.connect(remote_addr.clone())?;
+        socket.connect(remote)?;
 
         // Then transmit the registration request
         let mut buffer = vec![];
         req.encode(&mut buffer)?;
         socket.send(&buffer)?;
 
-        // Set a 5s timeout and wait for the registration reply to come back, if we get something else, panic for now
-        socket.set_read_timeout(Some(Duration::from_secs(5)))?;
-        let mut incoming = [0u8; 65535];
+        // Set a 1s timeout and wait for the registration reply to come back, if we get something else, panic for now
+        socket.set_read_timeout(Some(Duration::from_secs(1)))?;
+        let mut incoming = vec![0u8; UDP_MAX];
         let size = socket.recv(&mut incoming)?;
 
         let packet = &incoming[..size];
@@ -89,7 +97,7 @@ where
                     ))
                 }
             }
-            Ok(msg) => {
+            Ok(_) => {
                 // Without the connection ID we can't shut down later on, so we cannot continue
                 panic!("Recevied a non-registration reply as first incoming packet!");
             }
@@ -101,25 +109,33 @@ where
 
         Ok(Self {
             connection_id,
-            remote_addr: remote_addr,
-            listening_socket: socket,
+            socket,
             handler,
         })
     }
 
-    pub fn shutdown(self) -> Result<(), std::io::Error> {
-        let unregister = UnregisterRequest::new(self.connection_id);
-        let mut buffer = vec![];
-        unregister.encode(&mut buffer)?;
+    pub fn send<M>(&self, message: M) -> Result<(), std::io::Error>
+    where
+        M: OutboundMessage<Vec<u8>>,
+    {
+        // 64 bytes accomodates almost every outbound message type
+        let mut buffer = Vec::with_capacity(64);
+        message.encode(&mut buffer)?;
+        self.socket.send(&buffer)?;
 
-        self.listening_socket.send(&buffer)?;
         Ok(())
     }
 
+    pub fn shutdown(self) -> Result<(), std::io::Error> {
+        let unregister = UnregisterRequest::new(self.connection_id);
+        self.send(unregister)
+    }
+
     pub fn poll(&self) -> Result<(), ClientError> {
-        let mut buffer = [0u8; 65535];
-        let size = self.listening_socket.recv(&mut buffer)?;
-        let decoded = InboundMessage::decode(&buffer[..size]).map_err(ClientError::MessageDecodeError)?;
+        let mut buffer = vec![0u8; UDP_MAX];
+        let size = self.socket.recv(&mut buffer)?;
+        let decoded =
+            InboundMessage::decode(&buffer[..size]).map_err(ClientError::MessageDecodeError)?;
 
         match decoded {
             InboundMessage::RealtimeUpdate(rt) => self.handler.realtime_update(&rt),

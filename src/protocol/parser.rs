@@ -22,7 +22,7 @@ use tinyvec::ArrayVec;
 
 type Res<T, U> = IResult<T, U, ErrorTree<T>>;
 
-pub(crate) fn parse<'a>(input: &'a [u8]) -> Result<InboundMessage<'a>, ErrorTree<ByteOffset>> {
+pub(crate) fn parse(input: &[u8]) -> Result<InboundMessage, ErrorTree<ByteOffset>> {
     final_parser(context(
         "incoming_message",
         alt((
