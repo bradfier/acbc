@@ -3,6 +3,7 @@ use crate::protocol::inbound::{
     RealtimeUpdate, TrackData,
 };
 use crate::protocol::outbound::{OutboundMessage, RegistrationRequest, UnregisterRequest};
+use crate::session::Context;
 use log::{debug, info, trace};
 use nom_supreme::error::ErrorTree;
 use nom_supreme::final_parser::ByteOffset;
@@ -13,33 +14,57 @@ use thiserror::Error;
 const UDP_MAX: usize = 65535;
 
 pub trait MessageHandler {
-    fn realtime_update(&self, update: &RealtimeUpdate) {
+    fn realtime_update<M: MessageHandler>(
+        &self,
+        _client: &BroadcastingClient<M>,
+        update: &RealtimeUpdate,
+    ) {
         trace!(
             "Received realtime update packet for time {}",
             update.session_time
         );
     }
 
-    fn realtime_car_update(&self, update: &RealtimeCarUpdate) {
+    fn realtime_car_update<M: MessageHandler>(
+        &self,
+        _client: &BroadcastingClient<M>,
+        update: &RealtimeCarUpdate,
+    ) {
         trace!("Received realtime car update for car ID {}", update.id);
     }
 
-    fn entrylist_update(&self, update: &EntrylistUpdate) {
+    fn entrylist_update<M: MessageHandler>(
+        &self,
+        _client: &BroadcastingClient<M>,
+        update: &EntrylistUpdate,
+    ) {
         debug!(
             "Received entry list update with {} cars",
             update.car_ids.len()
         );
     }
 
-    fn entrylist_car(&self, car: &EntrylistCar) {
+    fn entrylist_car<M: MessageHandler>(
+        &self,
+        _client: &BroadcastingClient<M>,
+        car: &EntrylistCar,
+    ) {
         debug!("Received car information packet for car ID {}", car.id);
     }
 
-    fn track_data(&self, track_data: &TrackData) {
+    fn track_data<M: MessageHandler>(
+        &self,
+        _client: &BroadcastingClient<M>,
+        track_data: &TrackData,
+    ) {
         debug!("Received track data packet for {}", track_data.name);
     }
 
-    fn broadcasting_event(&self, event: &BroadcastingEvent) {
+    fn broadcasting_event<M: MessageHandler>(
+        &self,
+        _client: &BroadcastingClient<M>,
+        event: &BroadcastingEvent,
+    ) {
         debug!("Received broadcasting event {:?}", event.event_type);
     }
 }
@@ -47,6 +72,7 @@ pub trait MessageHandler {
 pub struct BroadcastingClient<H: MessageHandler> {
     connection_id: u32,
     socket: UdpSocket,
+    context: Context,
     handler: H,
 }
 
@@ -110,6 +136,7 @@ where
         Ok(Self {
             connection_id,
             socket,
+            context: Context::new(),
             handler,
         })
     }
@@ -126,24 +153,42 @@ where
         Ok(())
     }
 
+    pub fn ctx(&self) -> &Context {
+        &self.context
+    }
+
     pub fn shutdown(self) -> Result<(), std::io::Error> {
         let unregister = UnregisterRequest::new(self.connection_id);
         self.send(unregister)
     }
 
-    pub fn poll(&self) -> Result<(), ClientError> {
+    pub fn poll(&mut self) -> Result<(), ClientError> {
         let mut buffer = vec![0u8; UDP_MAX];
         let size = self.socket.recv(&mut buffer)?;
         let decoded =
             InboundMessage::decode(&buffer[..size]).map_err(ClientError::MessageDecodeError)?;
 
         match decoded {
-            InboundMessage::RealtimeUpdate(rt) => self.handler.realtime_update(&rt),
-            InboundMessage::RealtimeCarUpdate(rt) => self.handler.realtime_car_update(&rt),
-            InboundMessage::EntrylistUpdate(list) => self.handler.entrylist_update(&list),
-            InboundMessage::EntrylistCar(car) => self.handler.entrylist_car(&car),
-            InboundMessage::TrackData(track) => self.handler.track_data(&track),
-            InboundMessage::BroadcastingEvent(event) => self.handler.broadcasting_event(&event),
+            InboundMessage::RealtimeUpdate(rt) => self.handler.realtime_update(&self, &rt),
+            InboundMessage::RealtimeCarUpdate(rt) => {
+                self.context.update_car_state(rt.clone());
+                self.handler.realtime_car_update(&self, &rt)
+            }
+            InboundMessage::EntrylistUpdate(list) => {
+                self.context.seed_entrylist(&list);
+                self.handler.entrylist_update(&self, &list)
+            }
+            InboundMessage::EntrylistCar(car) => {
+                self.context.update_car_entry(car.clone());
+                self.handler.entrylist_car(&self, &car)
+            }
+            InboundMessage::TrackData(track) => {
+                self.context.update_track_data(track.clone());
+                self.handler.track_data(&self, &track)
+            }
+            InboundMessage::BroadcastingEvent(event) => {
+                self.handler.broadcasting_event(&self, &event)
+            }
             InboundMessage::RegistrationResult(_) => (),
         }
         Ok(())

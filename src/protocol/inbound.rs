@@ -187,7 +187,7 @@ impl<'a> EntrylistCar<'a> {
 pub type CameraSet<'a> = Vec<Cow<'a, str>>;
 pub type HudPages<'a> = Vec<Cow<'a, str>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TrackData<'a> {
     pub name: Cow<'a, str>,
     pub id: u32,

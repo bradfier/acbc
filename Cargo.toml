@@ -20,6 +20,7 @@ tinyvec = "1"
 nom-supreme = "0.4.2"
 byteorder = "1.4.3"
 log = "0.4.14"
+fnv = "1.0.7"
 
 [dev-dependencies]
 criterion = "0.3.4"
