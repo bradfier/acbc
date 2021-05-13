@@ -1,3 +1,7 @@
+use nom_supreme::error::ErrorTree;
+use nom_supreme::final_parser::ByteOffset;
+use std::borrow::Cow;
+use std::collections::HashMap;
 use tinyvec::ArrayVec;
 
 use crate::protocol::acc_enum::{
@@ -5,9 +9,6 @@ use crate::protocol::acc_enum::{
     SessionPhase, SessionType,
 };
 use crate::protocol::parser;
-use nom_supreme::error::ErrorTree;
-use nom_supreme::final_parser::ByteOffset;
-use std::collections::HashMap;
 
 #[derive(Debug)]
 pub enum InboundMessage<'a> {
@@ -32,10 +33,10 @@ pub struct RegistrationResult<'a> {
     pub connection_id: u32,
     pub connection_success: bool,
     pub read_only: bool,
-    pub error_message: &'a str,
+    pub error_message: Cow<'a, str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Lap {
     pub lap_time_ms: i32,
     pub car_id: u16,
@@ -48,14 +49,14 @@ pub struct Lap {
     pub is_in_lap: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReplayInfo {
     pub session_time: f32,
     pub remaining_time: f32,
     pub focused_car_index: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RealtimeUpdate<'a> {
     /// The event index, starts at 0 when connecting, and increments with each new race weekend.
     pub event_index: u16,
@@ -69,9 +70,9 @@ pub struct RealtimeUpdate<'a> {
     /// Time in milliseconds remaining before the end of the session
     pub session_end_time: f32,
     pub focused_car_index: u32,
-    pub active_camera_set: &'a str,
-    pub active_camera: &'a str,
-    pub current_hud_page: &'a str,
+    pub active_camera_set: Cow<'a, str>,
+    pub active_camera: Cow<'a, str>,
+    pub current_hud_page: Cow<'a, str>,
     pub replay_info: Option<ReplayInfo>,
     pub time_of_day: f32,
     pub ambient_temp: i8,
@@ -82,7 +83,32 @@ pub struct RealtimeUpdate<'a> {
     pub best_session_lap: Lap,
 }
 
-#[derive(Debug)]
+impl<'a> RealtimeUpdate<'a> {
+    pub fn into_owned(self) -> RealtimeUpdate<'static> {
+        RealtimeUpdate {
+            event_index: self.event_index,
+            session_index: self.session_index,
+            session_type: self.session_type,
+            session_phase: self.session_phase,
+            session_time: self.session_time,
+            session_end_time: self.session_end_time,
+            focused_car_index: self.focused_car_index,
+            active_camera_set: Cow::Owned(self.active_camera_set.into_owned()),
+            active_camera: Cow::Owned(self.active_camera.into_owned()),
+            current_hud_page: Cow::Owned(self.current_hud_page.into_owned()),
+            replay_info: self.replay_info,
+            time_of_day: self.time_of_day,
+            ambient_temp: self.ambient_temp,
+            track_temp: self.track_temp,
+            clouds: self.clouds,
+            rain_level: self.rain_level,
+            wetness: self.wetness,
+            best_session_lap: self.best_session_lap,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RealtimeCarUpdate {
     pub id: u16,
     pub driver_id: u16,
@@ -112,18 +138,30 @@ pub struct EntrylistUpdate {
 
 #[derive(Debug, Clone)]
 pub struct Driver<'a> {
-    pub first_name: &'a str,
-    pub last_name: &'a str,
-    pub short_name: &'a str,
+    pub first_name: Cow<'a, str>,
+    pub last_name: Cow<'a, str>,
+    pub short_name: Cow<'a, str>,
     pub category: DriverCategory,
     pub nationality: Nationality,
+}
+
+impl<'a> Driver<'a> {
+    pub fn into_owned(self) -> Driver<'static> {
+        Driver {
+            first_name: Cow::Owned(self.first_name.into_owned()),
+            last_name: Cow::Owned(self.last_name.into_owned()),
+            short_name: Cow::Owned(self.short_name.into_owned()),
+            category: self.category,
+            nationality: self.nationality,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct EntrylistCar<'a> {
     pub id: u16,
     pub model: CarModel,
-    pub team_name: &'a str,
+    pub team_name: Cow<'a, str>,
     pub race_number: i32,
     pub cup_category: CupCategory,
     pub current_driver_index: u8,
@@ -131,22 +169,62 @@ pub struct EntrylistCar<'a> {
     pub drivers: Vec<Driver<'a>>,
 }
 
-pub type CameraSet<'a> = Vec<&'a str>;
-pub type HudPages<'a> = Vec<&'a str>;
+impl<'a> EntrylistCar<'a> {
+    pub fn into_owned(self) -> EntrylistCar<'static> {
+        EntrylistCar {
+            id: self.id,
+            model: self.model,
+            team_name: Cow::Owned(self.team_name.into_owned()),
+            race_number: self.race_number,
+            cup_category: self.cup_category,
+            current_driver_index: self.current_driver_index,
+            nationality: self.nationality,
+            drivers: self.drivers.into_iter().map(|d| d.into_owned()).collect(),
+        }
+    }
+}
 
-#[derive(Debug, Clone)]
+pub type CameraSet<'a> = Vec<Cow<'a, str>>;
+pub type HudPages<'a> = Vec<Cow<'a, str>>;
+
+#[derive(Debug)]
 pub struct TrackData<'a> {
-    pub name: &'a str,
+    pub name: Cow<'a, str>,
     pub id: u32,
     pub distance: u32,
-    pub camera_sets: HashMap<&'a str, CameraSet<'a>>,
+    pub camera_sets: HashMap<Cow<'a, str>, CameraSet<'a>>,
     pub hud_pages: HudPages<'a>,
+}
+
+impl<'a> TrackData<'a> {
+    pub fn into_owned(self) -> TrackData<'static> {
+        TrackData {
+            name: Cow::Owned(self.name.into_owned()),
+            id: self.id,
+            distance: self.distance,
+            camera_sets: self
+                .camera_sets
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        Cow::Owned(k.into_owned()),
+                        v.into_iter().map(|s| Cow::Owned(s.into_owned())).collect(),
+                    )
+                })
+                .collect(),
+            hud_pages: self
+                .hud_pages
+                .into_iter()
+                .map(|h| Cow::Owned(h.into_owned()))
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct BroadcastingEvent<'a> {
     pub event_type: BroadcastingEventType,
-    pub message: &'a str,
+    pub message: Cow<'a, str>,
     pub time_ms: i32,
     pub car_id: u16,
 }

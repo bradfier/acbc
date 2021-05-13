@@ -1,24 +1,25 @@
+use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while};
 use nom::combinator::{map, map_res, not};
 use nom::error::context;
 use nom::multi::{fold_many0, length_count, length_value};
 use nom::number::complete::{le_f32, le_i32, le_i8, le_u16, le_u32, le_u8};
 use nom::sequence::tuple;
+use nom::IResult;
+use nom_supreme::error::ErrorTree;
+use nom_supreme::final_parser::{final_parser, ByteOffset};
+use std::borrow::Cow;
+use std::convert::TryFrom;
+use tinyvec::ArrayVec;
 
 use crate::protocol::acc_enum::{
     BroadcastingEventType, CarLocation, CarModel, CupCategory, DriverCategory, Nationality,
     SessionPhase, SessionType,
 };
 use crate::protocol::inbound::{
-    BroadcastingEvent, CameraSet, Driver, EntrylistCar, EntrylistUpdate, HudPages, InboundMessage,
-    Lap, RealtimeCarUpdate, RealtimeUpdate, RegistrationResult, ReplayInfo, TrackData,
+    BroadcastingEvent, CameraSet, Driver, EntrylistCar, EntrylistUpdate, InboundMessage, Lap,
+    RealtimeCarUpdate, RealtimeUpdate, RegistrationResult, ReplayInfo, TrackData,
 };
-use nom::branch::alt;
-use nom::IResult;
-use nom_supreme::error::ErrorTree;
-use nom_supreme::final_parser::{final_parser, ByteOffset};
-use std::convert::TryFrom;
-use tinyvec::ArrayVec;
 
 type Res<T, U> = IResult<T, U, ErrorTree<T>>;
 
@@ -49,7 +50,7 @@ fn registration_result(input: &[u8]) -> Res<&[u8], RegistrationResult> {
                 connection_id: res.1,
                 connection_success: res.2,
                 read_only: res.3,
-                error_message: res.4,
+                error_message: Cow::Borrowed(res.4),
             },
         )
     })
@@ -121,9 +122,9 @@ fn driver(input: &[u8]) -> Res<&[u8], Driver> {
             (
                 next_input,
                 Driver {
-                    first_name,
-                    last_name,
-                    short_name,
+                    first_name: Cow::Borrowed(first_name),
+                    last_name: Cow::Borrowed(last_name),
+                    short_name: Cow::Borrowed(short_name),
                     category,
                     nationality,
                 },
@@ -167,7 +168,7 @@ fn entrylist_car(input: &[u8]) -> Res<&[u8], EntrylistCar> {
                 EntrylistCar {
                     id,
                     model,
-                    team_name,
+                    team_name: Cow::Borrowed(team_name),
                     race_number,
                     cup_category,
                     current_driver_index,
@@ -281,9 +282,9 @@ fn realtime_update(input: &[u8]) -> Res<&[u8], RealtimeUpdate> {
                     session_time,
                     session_end_time,
                     focused_car_index,
-                    active_camera_set,
-                    active_camera,
-                    current_hud_page,
+                    active_camera_set: Cow::Borrowed(active_camera_set),
+                    active_camera: Cow::Borrowed(active_camera),
+                    current_hud_page: Cow::Borrowed(current_hud_page),
                     replay_info,
                     time_of_day,
                     ambient_temp,
@@ -375,9 +376,18 @@ fn realtime_car_update(input: &[u8]) -> Res<&[u8], RealtimeCarUpdate> {
     )
 }
 
-fn camera_set(input: &[u8]) -> Res<&[u8], (&str, CameraSet)> {
-    context("camera_set", tuple((kstring, length_count(le_u8, kstring))))(input)
-        .map(|(next_input, (set_name, cameras))| (next_input, (set_name, cameras as CameraSet)))
+fn camera_set<'a>(input: &'a [u8]) -> Res<&'a [u8], (Cow<'a, str>, CameraSet)> {
+    context("camera_set", tuple((kstring, length_count(le_u8, kstring))))(input).map(
+        |(next_input, (set_name, cameras))| {
+            (
+                next_input,
+                (
+                    Cow::Borrowed(set_name),
+                    cameras.into_iter().map(|s| Cow::Borrowed(s)).collect(),
+                ),
+            )
+        },
+    )
 }
 
 fn track_data(input: &[u8]) -> Res<&[u8], TrackData> {
@@ -390,7 +400,9 @@ fn track_data(input: &[u8]) -> Res<&[u8], TrackData> {
             le_u32,
             le_u32,
             length_count(le_u8, camera_set),
-            map(length_count(le_u8, kstring), |h| h as HudPages),
+            map(length_count(le_u8, kstring), |h| {
+                h.into_iter().map(|s| Cow::Borrowed(s)).collect()
+            }),
         )),
     )(input)
     .map(
@@ -398,7 +410,7 @@ fn track_data(input: &[u8]) -> Res<&[u8], TrackData> {
             (
                 next_input,
                 TrackData {
-                    name,
+                    name: Cow::Borrowed(name),
                     id,
                     distance,
                     camera_sets: camera_sets.into_iter().collect(),
@@ -429,7 +441,7 @@ fn broadcasting_event(input: &[u8]) -> Res<&[u8], BroadcastingEvent> {
             next_input,
             BroadcastingEvent {
                 event_type,
-                message,
+                message: Cow::Borrowed(message),
                 time_ms,
                 car_id,
             },
@@ -466,7 +478,7 @@ mod tests {
                     connection_id: 1,
                     connection_success: true,
                     read_only: true,
-                    error_message: "",
+                    error_message: Cow::Borrowed(""),
                 }
             )
         );
@@ -485,7 +497,7 @@ mod tests {
                     connection_id: 1,
                     connection_success: false,
                     read_only: true,
-                    error_message: "Handshake failed",
+                    error_message: Cow::Borrowed("Handshake failed"),
                 }
             )
         );

@@ -2,7 +2,7 @@ use crate::protocol::DecodeError;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SessionType {
     Practice,
     Qualifying,
@@ -32,7 +32,7 @@ impl TryFrom<u8> for SessionType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SessionPhase {
     None,
     Starting,
