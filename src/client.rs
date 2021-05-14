@@ -17,55 +17,43 @@ pub trait MessageHandler {
     fn realtime_update<M: MessageHandler>(
         &self,
         _client: &BroadcastingClient<M>,
-        update: &RealtimeUpdate,
+        _update: &RealtimeUpdate,
     ) {
-        trace!(
-            "Received realtime update packet for time {}",
-            update.session_time
-        );
     }
 
     fn realtime_car_update<M: MessageHandler>(
         &self,
         _client: &BroadcastingClient<M>,
-        update: &RealtimeCarUpdate,
+        _update: &RealtimeCarUpdate,
     ) {
-        trace!("Received realtime car update for car ID {}", update.id);
     }
 
     fn entrylist_update<M: MessageHandler>(
         &self,
         _client: &BroadcastingClient<M>,
-        update: &EntrylistUpdate,
+        _update: &EntrylistUpdate,
     ) {
-        debug!(
-            "Received entry list update with {} cars",
-            update.car_ids.len()
-        );
     }
 
     fn entrylist_car<M: MessageHandler>(
         &self,
         _client: &BroadcastingClient<M>,
-        car: &EntrylistCar,
+        _car: &EntrylistCar,
     ) {
-        debug!("Received car information packet for car ID {}", car.id);
     }
 
     fn track_data<M: MessageHandler>(
         &self,
         _client: &BroadcastingClient<M>,
-        track_data: &TrackData,
+        _track_data: &TrackData,
     ) {
-        debug!("Received track data packet for {}", track_data.name);
     }
 
     fn broadcasting_event<M: MessageHandler>(
         &self,
         _client: &BroadcastingClient<M>,
-        event: &BroadcastingEvent,
+        _event: &BroadcastingEvent,
     ) {
-        debug!("Received broadcasting event {:?}", event.event_type);
     }
 }
 
@@ -169,24 +157,38 @@ where
             InboundMessage::decode(&buffer[..size]).map_err(ClientError::MessageDecodeError)?;
 
         match decoded {
-            InboundMessage::RealtimeUpdate(rt) => self.handler.realtime_update(&self, &rt),
+            InboundMessage::RealtimeUpdate(rt) => {
+                trace!(
+                    "Received realtime session update for time {}",
+                    rt.session_time
+                );
+                self.handler.realtime_update(&self, &rt)
+            }
             InboundMessage::RealtimeCarUpdate(rt) => {
+                trace!("Received realtime car update for car ID {}", rt.id);
                 self.context.update_car_state(rt.clone());
                 self.handler.realtime_car_update(&self, &rt)
             }
             InboundMessage::EntrylistUpdate(list) => {
+                debug!(
+                    "Received entry list update with {} cars",
+                    list.car_ids.len()
+                );
                 self.context.seed_entrylist(&list);
                 self.handler.entrylist_update(&self, &list)
             }
             InboundMessage::EntrylistCar(car) => {
+                debug!("Received entry information packet for car ID {}", car.id);
                 self.context.update_car_entry(car.clone());
                 self.handler.entrylist_car(&self, &car)
             }
             InboundMessage::TrackData(track) => {
+                debug!("Received track data packet for {}", track.name);
                 self.context.update_track_data(track.clone());
                 self.handler.track_data(&self, &track)
             }
             InboundMessage::BroadcastingEvent(event) => {
+                debug!("Received broadcasting event {:?}", event.event_type);
                 self.handler.broadcasting_event(&self, &event)
             }
             InboundMessage::RegistrationResult(_) => (),
