@@ -211,7 +211,7 @@ fn lap(input: &[u8]) -> Res<&[u8], Lap> {
             Lap {
                 lap_time_ms: res.0,
                 car_id: res.1,
-                driver_id: res.2,
+                driver_index: res.2,
                 splits: res.3,
                 is_invalid: res.4,
                 is_valid_for_best: res.5,
@@ -353,7 +353,7 @@ fn realtime_car_update(input: &[u8]) -> Res<&[u8], RealtimeCarUpdate> {
                 next_input,
                 RealtimeCarUpdate {
                     id,
-                    driver_id,
+                    driver_index: driver_id,
                     driver_count,
                     gear,
                     world_pos_x,
@@ -509,6 +509,7 @@ mod tests {
         let res = lap(input).unwrap().1;
 
         assert_eq!(res.car_id, 1001);
+        assert_eq!(res.driver_index, 0);
         assert_eq!(res.splits.len(), 3);
     }
 

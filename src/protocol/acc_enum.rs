@@ -1,7 +1,15 @@
+//! Definitions for enums used by ACC
+//!
+//! This module contains a mixture of Broadcast API specific types and those also used in simulator
+//! config files and entry lists.
+//!
+//! Documentation has been omitted where fields are self-explanatory, however some idiosyncrasies have been annotated.
+
 use crate::protocol::DecodeError;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 
+/// The type of session the connected simulator is running.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SessionType {
     Practice,
@@ -32,16 +40,27 @@ impl TryFrom<u8> for SessionType {
     }
 }
 
+/// The phase of the simulator's current session.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum SessionPhase {
+    /// The simulator itself has not started yet, rarely seen.
     None,
+    /// Session pre-start, where cars are spawned on the grid but cannot yet move.
     Starting,
+    /// Immediately before the formation lap, where cars which have not pressed DRIVE have been teleported to
+    /// the pit lane, but before the lead car has its controls unlocked.
     PreFormation,
+    /// During the single and double-file formation lap periods.
     FormationLap,
+    /// During the rolling start procedure.
     PreSession,
+    /// From Green Flag until the end of the session.
     Session,
+    /// The session timer has elapsed, but the lead car has not yet finished the lap.
     SessionOver,
+    /// The post-session grace period for cars to complete their current lap.
     PostSession,
+    /// The period where only the results screen is visible.
     ResultUi,
 }
 
@@ -64,6 +83,7 @@ impl TryFrom<u8> for SessionPhase {
     }
 }
 
+/// The current location of a car.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CarLocation {
     None,
@@ -88,6 +108,7 @@ impl TryFrom<u8> for CarLocation {
     }
 }
 
+/// The nationality of a Car or Driver.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Nationality {
     Any,
@@ -258,6 +279,7 @@ impl TryFrom<u16> for Nationality {
     }
 }
 
+/// A selected Car Model.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CarModel {
@@ -395,6 +417,11 @@ impl Display for CarModel {
     }
 }
 
+/// Driver category, as shown in the results display.
+///
+/// - `Platinum` or `Gold` = White Badge, PRO Class
+/// - `Silver` = Silver Badge, SILVER Class
+/// - `Bronze` = Red Badge, AM Class
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DriverCategory {
     Platinum,
@@ -417,6 +444,14 @@ impl TryFrom<u8> for DriverCategory {
     }
 }
 
+/// The class or category of a car in a session.
+///
+/// The categories which appear in normal sessions seem to be:
+/// - White Badge = `Overall`
+/// - Silver Badge = `Silver`
+/// - Red Badge = `Am`
+///
+/// The other categories here, `ProAm` and `National` possibly only appear in single-player campaign modes.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CupCategory {
     Overall,
@@ -441,12 +476,15 @@ impl TryFrom<u8> for CupCategory {
     }
 }
 
+/// The type of an event relevant to the broadcast.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BroadcastingEventType {
+    /// No specific type, message may still be populated with information.
     None,
     GreenFlag,
     SessionOver,
     PenaltyMessage,
+    /// A car made contact with another car, or the scenery.
     Accident,
     LapCompleted,
     BestSessionLap,

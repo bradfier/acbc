@@ -7,6 +7,9 @@ mod parser;
 
 const PROTOCOL_VERSION: u8 = 4;
 
+pub use inbound::*;
+pub use outbound::*;
+
 #[derive(Debug, Error)]
 pub enum DecodeError {
     #[error("Unrecognised session type `{0}`")]

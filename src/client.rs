@@ -1,3 +1,5 @@
+//! A simple, batteries-included client for the Broadcasting API
+
 use crate::protocol::inbound::{
     BroadcastingEvent, EntrylistCar, EntrylistUpdate, InboundMessage, RealtimeCarUpdate,
     RealtimeUpdate, TrackData,
@@ -14,54 +16,55 @@ use thiserror::Error;
 const UDP_MAX: usize = 65535;
 
 pub trait MessageHandler {
-    fn realtime_update<M: MessageHandler>(
+    fn realtime_update<H: MessageHandler>(
         &self,
-        _client: &BroadcastingClient<M>,
+        _client: &BroadcastingClient<H>,
         _update: &RealtimeUpdate,
     ) {
     }
 
-    fn realtime_car_update<M: MessageHandler>(
+    fn realtime_car_update<H: MessageHandler>(
         &self,
-        _client: &BroadcastingClient<M>,
+        _client: &BroadcastingClient<H>,
         _update: &RealtimeCarUpdate,
     ) {
     }
 
-    fn entrylist_update<M: MessageHandler>(
+    fn entrylist_update<H: MessageHandler>(
         &self,
-        _client: &BroadcastingClient<M>,
+        _client: &BroadcastingClient<H>,
         _update: &EntrylistUpdate,
     ) {
     }
 
-    fn entrylist_car<M: MessageHandler>(
+    fn entrylist_car<H: MessageHandler>(
         &self,
-        _client: &BroadcastingClient<M>,
+        _client: &BroadcastingClient<H>,
         _car: &EntrylistCar,
     ) {
     }
 
-    fn track_data<M: MessageHandler>(
+    fn track_data<H: MessageHandler>(
         &self,
-        _client: &BroadcastingClient<M>,
+        _client: &BroadcastingClient<H>,
         _track_data: &TrackData,
     ) {
     }
 
-    fn broadcasting_event<M: MessageHandler>(
+    fn broadcasting_event<H: MessageHandler>(
         &self,
-        _client: &BroadcastingClient<M>,
+        _client: &BroadcastingClient<H>,
         _event: &BroadcastingEvent,
     ) {
     }
 }
 
-pub struct BroadcastingClient<M: MessageHandler> {
+pub struct BroadcastingClient<H: MessageHandler> {
     connection_id: u32,
     socket: UdpSocket,
     context: Context,
-    handler: M,
+    stopped: bool,
+    handler: H,
 }
 
 #[derive(Debug, Error)]
@@ -125,6 +128,7 @@ where
             connection_id,
             socket,
             context: Context::new(),
+            stopped: false,
             handler,
         })
     }
@@ -133,7 +137,7 @@ where
     where
         M: OutboundMessage<Vec<u8>>,
     {
-        // 64 bytes accomodates almost every outbound message type
+        // 64 bytes accommodates almost every outbound message type
         let mut buffer = Vec::with_capacity(64);
         message.encode(&mut buffer)?;
         self.socket.send(&buffer)?;
@@ -145,9 +149,19 @@ where
         &self.context
     }
 
-    pub fn shutdown(self) -> Result<(), std::io::Error> {
+    /// Sends an [`UnregisterRequest`] to the simulator and destroys the client.
+    pub fn shutdown(mut self) -> Result<(), std::io::Error> {
+        self.shutdown_impl()
+    }
+
+    // Split impl so Drop can shutdown a &mut self reference but .shutdown() can consume the client
+    fn shutdown_impl(&mut self) -> Result<(), std::io::Error> {
         let unregister = UnregisterRequest::new(self.connection_id);
-        self.send(unregister)
+        let res = self.send(unregister);
+        if res.is_ok() {
+            self.stopped = true;
+        }
+        res
     }
 
     pub fn poll(&mut self) -> Result<(), ClientError> {
@@ -194,5 +208,14 @@ where
             InboundMessage::RegistrationResult(_) => (),
         }
         Ok(())
+    }
+}
+
+impl<H: MessageHandler> Drop for BroadcastingClient<H> {
+    fn drop(&mut self) {
+        if !self.stopped {
+            self.shutdown_impl()
+                .expect("Failed to send shutdown on Drop");
+        }
     }
 }
