@@ -57,11 +57,11 @@ pub trait MessageHandler {
     }
 }
 
-pub struct BroadcastingClient<H: MessageHandler> {
+pub struct BroadcastingClient<M: MessageHandler> {
     connection_id: u32,
     socket: UdpSocket,
     context: Context,
-    handler: H,
+    handler: M,
 }
 
 #[derive(Debug, Error)]
